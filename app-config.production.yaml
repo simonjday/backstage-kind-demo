@@ -9,6 +9,10 @@ backend:
     connect-src: ["'self'", 'http:', 'https:']
   cors:
     origin: http://localhost:8080
+  reading:
+    allow:
+      - host: raw.githubusercontent.com
+      - host: github.com
   database:
     client: pg
     connection:
@@ -27,6 +31,11 @@ auth:
       dangerouslyAllowOutsideDevelopment: true
 
 catalog:
+  rules:
+    # Default Backstage rules exclude Template kind from url-type locations
+    # (templates execute scaffolder actions, so it's treated as more sensitive
+    # than a plain Component). This override adds it back for the demo.
+    - allow: [Component, System, API, Resource, Location, Template]
   locations:
     - type: url
       target: https://github.com/simonjday/agentgateway-demo/blob/main/catalog-info.yaml

@@ -34,4 +34,7 @@ RUN tar xzf bundle.tar.gz && rm bundle.tar.gz
 
 COPY app-config.yaml app-config.production.yaml ./
 ENV NODE_ENV=production
+# The scaffolder backend requires this on Node 20+ (isolated-vm sandboxing
+# conflicts with V8's node snapshot feature otherwise).
+ENV NODE_OPTIONS=--no-node-snapshot
 CMD ["node", "packages/backend", "--config", "app-config.yaml", "--config", "app-config.production.yaml"]

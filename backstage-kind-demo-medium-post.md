@@ -108,17 +108,14 @@ of the manifest itself.
 
 The point of the exercise was the scaffolder template — a four-page form
 (Basics, Sizing & Network, Security & Compliance, Lifecycle) for requesting
-an OpenShift namespace, backed by a `POST` to an onboarding API. Registering
-it in Backstage is one `Create → Register Existing Component` away, pointed
-at the raw template URL. Once it appeared in the catalog, I could walk
-through the actual form fields, confirm the conditional descriptions (e.g.
-flagging that `anyuid` or `confidential` data classification triggers an
-approval step) rendered as expected, and catch a couple of enum ordering
-issues I'd never have noticed just reading the YAML.
-
-For a pure UI smoke test — no real API behind it yet — pointing the
-template's submit step at `httpbin.org/post` temporarily is enough to
-confirm the form submits cleanly before wiring it to anything real.
+an OpenShift namespace. Registering it in Backstage is one
+`Create → Register Existing Component` away, pointed at the raw template
+URL — in theory. In practice this, and then actually running it, turned
+out to be its own small gauntlet, covered below. Once past all of it I
+could walk through the actual form fields, confirm the conditional
+descriptions (e.g. flagging that `anyuid` or `confidential` data
+classification triggers an approval step) rendered as expected, and catch a
+couple of enum ordering issues I'd never have noticed just reading the YAML.
 
 ## The parts that actually took time
 
@@ -155,6 +152,53 @@ Each of these produces a generic "exit code 1" from Docker's summary output
 by default — getting the real compiler/node-gyp error required temporarily
 piping the build log to stdout on failure. Worth doing early rather than
 guessing at fixes against a truncated error.
+
+Getting the *container built* was only half of it. Getting a working demo
+inside it — registering the template, then actually running it — was its
+own sequence:
+
+- **Guest sign-in silently fails** with a "fallback to legacy guest token?"
+  dialog, and the backend logs the real reason:
+  `NotAllowedError: The guest provider cannot be used outside of a
+  development environment`. Backstage blocks guest auth whenever
+  `NODE_ENV=production` — which the Dockerfile sets deliberately for the
+  runtime image. Fix is an explicit opt-out:
+  `auth.providers.guest.dangerouslyAllowOutsideDevelopment: true`. Never do
+  this anywhere real.
+- **Registering the template fails** with "Reading from
+  '...raw.githubusercontent.com/...' is not allowed" — Backstage won't
+  fetch from arbitrary hosts unless allow-listed. Fix:
+  `backend.reading.allow` with the host explicitly added.
+- **Registering it again fails differently**: "is not of an allowed kind
+  for that location." Default catalog rules exclude `Template` from
+  URL-registered locations, since templates execute scaffolder actions and
+  are treated as more sensitive than a plain `Component`. Fix:
+  `catalog.rules` with `Template` added to the allow list.
+- **Registering it a third time fails on the template itself**:
+  `/spec must have required property 'type'`. `spec.type` is required on
+  every Template entity and trivial to omit when hand-writing one.
+- **Fixing and pushing the file didn't immediately fix the error** — GitHub's
+  raw-content CDN caches per-edge for a few minutes, and a retry can land on
+  a still-stale edge showing the old, broken content. A throwaway query
+  string (`?v=2`) on the raw URL cache-busts it.
+- **The template finally registers, the form finally submits — and the
+  task immediately fails**: "the scaffolder backend plugin requires that it
+  be started with the `--no-node-snapshot` option." Same `isolated-vm`
+  dependency from the Dockerfile saga, still causing trouble, this time at
+  runtime rather than build time. Fix: `NODE_OPTIONS=--no-node-snapshot` in
+  the Dockerfile.
+- **One more**: "Template action with ID 'http:backstage:request' is not
+  registered." That action doesn't actually exist in Backstage core — I'd
+  written the template assuming a generic HTTP-POST action that only ships
+  via a separate community plugin. Swapped the step to the built-in
+  `debug:log` instead, which logs every submitted parameter and proves the
+  whole form → scaffolder pipeline works without needing any external
+  dependency at all.
+
+Seven straight fixes just to get one template to register and run —
+each one a distinct, correctly-worded error pointing at a genuinely
+different gate. None of it was hard once diagnosed; all of it was invisible
+until hit.
 
 
 

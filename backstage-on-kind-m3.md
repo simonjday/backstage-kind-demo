@@ -125,6 +125,10 @@ backend:
     connect-src: ["'self'", 'http:', 'https:']
   cors:
     origin: http://localhost:8080
+  reading:
+    allow:
+      - host: raw.githubusercontent.com
+      - host: github.com
   database:
     client: pg
     connection:
@@ -136,9 +140,17 @@ backend:
 auth:
   environment: development
   providers:
-    guest: {}
+    guest:
+      # guest auth is blocked outside NODE_ENV=development by default —
+      # our Dockerfile (§4) sets NODE_ENV=production for the runtime image,
+      # so this override is required. Never do this for anything real.
+      dangerouslyAllowOutsideDevelopment: true
 
 catalog:
+  rules:
+    # Default rules exclude Template kind from url-type locations (templates
+    # execute scaffolder actions, treated as more sensitive than a Component).
+    - allow: [Component, System, API, Resource, Location, Template]
   locations:
     - type: url
       target: https://github.com/simonjday/agentgateway-demo/blob/main/catalog-info.yaml
@@ -189,6 +201,9 @@ RUN tar xzf bundle.tar.gz && rm bundle.tar.gz
 
 COPY app-config.yaml app-config.production.yaml ./
 ENV NODE_ENV=production
+# The scaffolder backend requires this on Node 20+ (isolated-vm sandboxing
+# conflicts with V8's node snapshot feature otherwise).
+ENV NODE_OPTIONS=--no-node-snapshot
 CMD ["node", "packages/backend", "--config", "app-config.yaml", "--config", "app-config.production.yaml"]
 ```
 
@@ -422,16 +437,38 @@ per the cluster config in step 1.)
 
 Add the template to `app-config.production.yaml`'s `catalog.locations`, or
 register it live via the UI: **Create → Register Existing Component**, pointing
-at the raw URL of `backstage-template.yaml` from the design doc's repo. Then
-**Create** → it should appear as "Request a Namespace" with the four parameter
-pages (Basics / Sizing & Network / Security & Compliance / Lifecycle) built
-in the earlier design doc.
+at the raw URL of `backstage-template.yaml` from the design doc's repo.
 
-Since there's no real `ns-api.internal` behind this test instance, the final
-`http:backstage:request` step will fail against a real endpoint — for a UI-only
-smoke test, temporarily point `steps.submit.input.url` at a mock, e.g.
-[https://httpbin.org/post](https://httpbin.org/post), to confirm the form
-renders and submits correctly before wiring it to the real API.
+Two things worth confirming before registering, since both surfaced as real
+errors when building this:
+
+- The template file must have a top-level `spec.type` (e.g.
+  `infrastructure`, `service`, `website`) — it's a required field, easy to
+  miss when hand-writing a Template entity.
+- The config already needs `backend.reading.allow` for
+  `raw.githubusercontent.com`/`github.com` and a `catalog.rules` entry
+  allowing `Template` kind (both included in §3's config block above) —
+  without them, registration fails with "is not allowed" or "is not of an
+  allowed kind" respectively.
+
+If you push a fix to the template file and re-registering still shows the
+old error, GitHub's raw-content CDN may be serving a stale cached copy from
+a different edge — cache-bust the URL with a throwaway query string
+(`?v=2`) when retrying rather than assuming something's stuck in the catalog.
+
+Once it registers, **Create** → it should appear as "Request a Namespace"
+with the four parameter pages (Basics / Sizing & Network / Security &
+Compliance / Lifecycle) built in the earlier design doc.
+
+The template's submit step uses the built-in `debug:log` action rather than
+a real HTTP call — there's no built-in generic HTTP POST action in
+Backstage, and the original design assumed one (`http:backstage:request`)
+that only exists via a separate plugin. `debug:log` logs every submitted
+parameter, which is enough to confirm the full form → scaffolder pipeline
+works end to end without any external dependency. See §13's Troubleshooting
+entry for wiring up a real HTTP action if you want to actually hit an
+endpoint (e.g. `httpbin.org/post` for a smoke test, or the real onboarding
+API).
 
 ## 10. One-Shot Setup Script
 
@@ -581,3 +618,75 @@ RUN yarn install --frozen-lockfile || \
 ```
 Remove it once you've got a real error to work from — it's a diagnostic
 step, not something to ship.
+
+**Guest sign-in fails — "Failed to sign in as a guest using the auth backend" dialog in the browser, backend pod logs show `NotAllowedError: The guest provider cannot be used outside of a development environment`**
+Backstage blocks guest auth whenever `NODE_ENV=production`, which the
+Dockerfile in §4 sets deliberately for the runtime image. Fix in
+`app-config.production.yaml`:
+```yaml
+auth:
+  providers:
+    guest:
+      dangerouslyAllowOutsideDevelopment: true
+```
+This requires a full rebuild (`docker build ... && kind load ...`), not just
+`kubectl rollout restart` — the config file is baked into the image at build
+time, not mounted live from a ConfigMap.
+
+**Register Existing Component fails — "Reading from '...raw.githubusercontent.com/...' is not allowed"**
+Backstage refuses to fetch from arbitrary hosts unless explicitly
+allow-listed (or configured as a GitHub integration with a token). Fix:
+```yaml
+backend:
+  reading:
+    allow:
+      - host: raw.githubusercontent.com
+      - host: github.com
+```
+Same rebuild requirement — baked into the image.
+
+**Register Existing Component fails — "is not of an allowed kind for that location"**
+Default catalog rules exclude `Template` kind from URL-registered locations
+(templates execute scaffolder actions, treated as more sensitive than a
+plain `Component`). Fix:
+```yaml
+catalog:
+  rules:
+    - allow: [Component, System, API, Resource, Location, Template]
+```
+
+**Template validation fails — "/spec must have required property 'type'"**
+`spec.type` is required on every Template entity (e.g. `service`, `website`,
+`infrastructure`) and easy to omit when hand-writing one:
+```yaml
+spec:
+  type: infrastructure
+```
+
+**Same validation error persists after fixing and pushing the template file**
+GitHub's raw-content CDN caches per-edge for a few minutes; a retry can hit
+a still-stale edge. Cache-bust with a throwaway query parameter:
+```
+https://raw.githubusercontent.com/<org>/<repo>/main/backstage-template.yaml?v=2
+```
+If the entity page shows "Entity not found" at this point, there's nothing
+persisted to unregister — the earlier failures were live validation
+responses, not a stuck broken entity. The cache-bust alone resolves it.
+
+**Form submits but the task fails — "...scaffolder backend plugin requires that it be started with the --no-node-snapshot option"**
+The scaffolder's action sandboxing (`isolated-vm` again — same package from
+the native-module saga in §4) needs V8's node snapshot feature disabled on
+Node 20+. Fix in the Dockerfile's runtime stage:
+```dockerfile
+ENV NODE_OPTIONS=--no-node-snapshot
+```
+
+**Task fails — "Template action with ID '...' is not registered"**
+Only Backstage's actual built-in actions work without extra setup —
+`fetch:*`, `github:*`, `debug:log`, `catalog:*`, `fs:*` (check your
+backend's startup logs for the exact list). There's no built-in generic
+HTTP POST action, so §9's template uses `debug:log` for its submit step —
+it logs the submitted parameters, proving the form → scaffolder pipeline
+works without needing an external plugin. For a real HTTP call, install
+`@roadiehq/scaffolder-backend-module-http-request` (registers
+`http:backstage:request`) and add it to `packages/backend/src/index.ts`.
