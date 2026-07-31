@@ -3,3 +3,5 @@ dist/
 .DS_Store
 *.log
 .env
+backstage-kind-demo-medium-post.md
+backstage-kind-demo-linkedin-post.md
