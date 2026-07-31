@@ -3,7 +3,9 @@ kind: Template
 metadata:
   name: namespace-onboarding
   title: Request a Namespace
+  description: Self-service OpenShift namespace creation and access onboarding
 spec:
+  type: infrastructure
   parameters:
     - title: Basics
       required: [project_name, environment, cost_center, oncall_group]
