@@ -25,7 +25,7 @@ spec:
           description: PagerDuty/AlertManager routing group
         target_cluster:
           type: string
-          enum: [kind-devops-lab, ocp-prod-1]
+          enum: [backstage-test, ocp-prod-1]
 
     - title: Sizing & Network
       required: [resource_profile, network_zone]
