@@ -61,24 +61,43 @@ spec:
           description: Leave blank for permanent (staging/prod). Required for ephemeral dev.
 
   steps:
-    - id: submit
-      name: Submit request
-      # `http:backstage:request` is NOT a built-in scaffolder action — it only
-      # exists if the Roadie HTTP-request plugin is installed (see below).
-      # For a zero-dependency demo, this logs the submitted parameters via
-      # the built-in `debug:log` action instead of making a real call.
+    - id: create-namespace
+      name: Create namespace (pending approval)
+      # Creates a real Namespace in the cluster Backstage itself is running
+      # in, labelled pending-approval. It's inert until the "Approve
+      # Namespace Request" template attaches quota/limits/network policy and
+      # flips the label to approved.
+      action: kubernetes:apply
+      input:
+        manifest: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: ${{ parameters.project_name }}
+            labels:
+              status: pending-approval
+              environment: ${{ parameters.environment }}
+              cost-center: ${{ parameters.cost_center }}
+              managed-by: backstage-scaffolder
+            annotations:
+              requested-by: ${{ user.entity.metadata.name }}
+              oncall-group: ${{ parameters.oncall_group }}
+              resource-profile: ${{ parameters.resource_profile }}
+              network-zone: ${{ parameters.network_zone }}
+              scc-requirement: ${{ parameters.scc_requirement }}
+              data-classification: ${{ parameters.data_classification }}
+              target-cluster: ${{ parameters.target_cluster }}
+              expiry-date: ${{ parameters.expiry_date }}
+
+    - id: log
+      name: Log request
       action: debug:log
       input:
         message: >-
-          Namespace request submitted:
-          project=${{ parameters.project_name }},
-          env=${{ parameters.environment }},
-          cost_center=${{ parameters.cost_center }},
-          profile=${{ parameters.resource_profile }},
-          zone=${{ parameters.network_zone }},
-          scc=${{ parameters.scc_requirement }},
-          classification=${{ parameters.data_classification }}
-        # team NOT included here — derived server-side from the user's OIDC token
+          Namespace '${{ parameters.project_name }}' created with
+          status=pending-approval by ${{ user.entity.metadata.name }}.
+          Run the "Approve Namespace Request" template next to actually
+          provision it (quota, limits, network policy) and flip it to approved.
 
   # To POST to a real endpoint instead (e.g. httpbin.org/post for a smoke
   # test, or the real onboarding API), install the Roadie HTTP action plugin:

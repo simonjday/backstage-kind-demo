@@ -1,0 +1,82 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: namespace-approval
+  title: Approve Namespace Request
+  description: >-
+    Provisions a namespace that's pending approval — attaches its
+    ResourceQuota, LimitRange, and NetworkPolicy, then flips its status to
+    approved. Run this as a separate person/step from "Request a Namespace"
+    to demonstrate a real approval gate.
+spec:
+  type: infrastructure
+  parameters:
+    - title: Which request are you approving?
+      required: [namespace_name, approver_name]
+      properties:
+        namespace_name:
+          type: string
+          description: >-
+            Name of the pending namespace (check `kubectl get ns -l
+            status=pending-approval` if unsure)
+        approver_name:
+          type: string
+          description: >-
+            Your name — with guest auth there's only one anonymous identity,
+            so this is a stand-in for a real approver. With real auth
+            configured (e.g. GitHub OAuth), this would instead be derived
+            automatically from the signed-in user rather than typed in.
+
+    - title: Finalize sizing & network
+      description: >-
+        The approver confirms (or adjusts) what's actually granted — this
+        doesn't have to match what was originally requested.
+      required: [resource_profile, network_zone]
+      properties:
+        resource_profile:
+          type: string
+          enum: [small, medium, large]
+          enumNames:
+            - "Small — 250m/256Mi req, 10 pods"
+            - "Medium — 1 CPU/1Gi req, 30 pods"
+            - "Large — 4 CPU/8Gi req, 100 pods"
+        network_zone:
+          type: string
+          enum: [internal, dmz, restricted]
+
+  steps:
+    - id: provision
+      name: Provision namespace resources
+      # Builds and applies ResourceQuota/LimitRange/NetworkPolicy in
+      # TypeScript (see kubernetesActions.ts) rather than branching YAML
+      # inline here — much easier to get right and to read.
+      action: kubernetes:namespace-provision
+      input:
+        namespace: ${{ parameters.namespace_name }}
+        resource_profile: ${{ parameters.resource_profile }}
+        network_zone: ${{ parameters.network_zone }}
+
+    - id: approve
+      name: Mark namespace approved
+      action: kubernetes:apply
+      input:
+        manifest: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: ${{ parameters.namespace_name }}
+            labels:
+              status: approved
+            annotations:
+              approved-by: ${{ parameters.approver_name }}
+
+    - id: log
+      name: Log approval
+      action: debug:log
+      input:
+        message: >-
+          Namespace '${{ parameters.namespace_name }}' approved by
+          ${{ parameters.approver_name }} with
+          profile=${{ parameters.resource_profile }},
+          zone=${{ parameters.network_zone }}. ResourceQuota, LimitRange,
+          and NetworkPolicy applied; status flipped to approved.
