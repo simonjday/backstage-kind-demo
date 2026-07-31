@@ -24,11 +24,11 @@ cd ~/dev/backstage-test
 #    overwriting the scaffolded defaults:
 cp /path/to/backstage-kind-demo/app-config.production.yaml ./app-config.production.yaml
 cp /path/to/backstage-kind-demo/Dockerfile ./packages/backend/Dockerfile
-cp /path/to/backstage-kind-demo/dockerignore ./.dockerignore
+cp /path/to/backstage-kind-demo/.dockerignore ./.dockerignore
 
 # 3. Add the custom kubernetes scaffolder action:
 mkdir -p packages/backend/src/modules
-cp /path/to/backstage-kind-demo/backend-modules/kubernetesActions.ts \
+cp /path/to/backstage-kind-demo/kubernetesActions.ts \
    packages/backend/src/modules/kubernetesActions.ts
 yarn --cwd packages/backend add @kubernetes/client-node js-yaml
 yarn --cwd packages/backend add -D @types/js-yaml
@@ -42,10 +42,10 @@ corepack enable
 yarn install
 
 cd /path/to/backstage-kind-demo
-./scripts/setup.sh
+./setup.sh
 ```
 
-`scripts/setup.sh` does steps 2–3 for you automatically (copies the module,
+`setup.sh` does steps 2–3 for you automatically (copies the module,
 installs the deps) and prints a reminder if `index.ts` still needs the
 manual two-line wire-up.
 
@@ -53,7 +53,7 @@ Then visit **http://localhost:8080**.
 
 Tear down completely:
 ```bash
-./scripts/teardown.sh
+./teardown.sh
 ```
 
 ## Approval workflow
@@ -131,8 +131,8 @@ than via `setup.sh`.
 | `kind-backstage.yaml` | kind cluster config (control-plane node, ingress port mappings) |
 | `app-config.production.yaml` | Backstage backend config overlay — Postgres connection, guest auth, `backend.reading.allow` for GitHub raw content, `catalog.rules` allowing Template kind |
 | `Dockerfile` | Multi-stage build for the Backstage backend image (place at `packages/backend/Dockerfile` in the scaffolded app) |
-| `dockerignore` | Replaces `create-app`'s default `.dockerignore` — the default excludes `packages/*/src`, which breaks an in-container `tsc`/build |
-| `backend-modules/kubernetesActions.ts` | Custom scaffolder actions — `kubernetes:apply` (generic manifest apply) and `kubernetes:namespace-provision` (quota/limits/netpol by profile/zone) |
+| `.dockerignore` | Replaces `create-app`'s default `.dockerignore` — the default excludes `packages/*/src`, which breaks an in-container `tsc`/build |
+| `kubernetesActions.ts` | Custom scaffolder actions — `kubernetes:apply` (generic manifest apply) and `kubernetes:namespace-provision` (quota/limits/netpol by profile/zone) |
 | `manifests/00-namespace.yaml` | `backstage` namespace |
 | `manifests/01-postgres-secret.yaml` | DB credentials (test-only values — replace before reusing anywhere real) |
 | `manifests/02-postgres.yaml` | Postgres StatefulSet + Service |
@@ -141,8 +141,9 @@ than via `setup.sh`.
 | `manifests/05-rbac.yaml` | ServiceAccount + ClusterRole + ClusterRoleBinding so the pod can manage namespaces/quota/limits/netpol |
 | `backstage-template.yaml` | "Request a Namespace" — creates a pending-approval namespace in this cluster |
 | `backstage-template-approve.yaml` | "Approve Namespace Request" — provisions it and flips it to approved |
-| `scripts/setup.sh` | One-shot cluster create + build + deploy, including the kubernetes-actions module |
-| `scripts/teardown.sh` | `kind delete cluster` |
+| `setup.sh` | One-shot cluster create + build + deploy, including the kubernetes-actions module |
+| `teardown.sh` | `kind delete cluster` |
+| `push-to-github.sh` | `git init` + `gh repo create` to publish this repo (requires `gh` CLI authenticated) |
 
 ## Requirements
 
@@ -166,9 +167,9 @@ than via `setup.sh`.
   `docker build` and the Dockerfile just packages the prebuilt tarballs.
   This repo's Dockerfile builds inside the container instead (`yarn tsc` +
   `yarn build:backend` run in the build stage), so it needs those source
-  dirs present in the build context. Replace the scaffolded `.dockerignore`
-  with `dockerignore` from this repo (rename to `.dockerignore` in the
-  scaffolded app) before building.
+  dirs present in the build context. Copy this repo's `.dockerignore` over
+  the scaffolded app's default before building (same filename, no rename
+  needed — it won't show in a plain `ls`/`tree` locally, use `-a`).
 - Full write-up: link to the accompanying Medium post goes here once published.
 
 ## Troubleshooting
@@ -190,7 +191,7 @@ one to be *created*. Poll for existence first:
 until kubectl get pods -n <namespace> -l <selector> 2>/dev/null | grep -q <name>; do sleep 2; done
 kubectl wait --namespace <namespace> --for=condition=ready pod --selector=<selector> --timeout=120s
 ```
-`scripts/setup.sh` already does this for ingress-nginx, Postgres, and Backstage.
+`setup.sh` already does this for ingress-nginx, Postgres, and Backstage.
 
 **Native module build fails (`tree-sitter-json`, `cpu-features`, etc.) with exit code 1**
 The slim base image has no C/C++ toolchain. Add before `COPY . .`:
@@ -214,7 +215,7 @@ brew install node@22
 `create-app`'s default `.dockerignore` excludes `packages/*/src` and
 `plugins`, since it assumes you build on the host before `docker build`. This
 repo's Dockerfile builds inside the container, so it needs source present.
-Replace `.dockerignore` with `dockerignore` from this repo.
+Replace `.dockerignore` with `.dockerignore` from this repo (same name — just copy it over directly).
 
 **`yarn build:backend` — "Config file .../packages/backend/app-config.yaml does not exist"**
 The build script's working directory is `packages/backend/`, so config paths
@@ -328,7 +329,7 @@ To actually make an HTTP call, install a plugin that provides one (e.g.
 `backstage-template.yaml` for the exact steps.
 
 All of the above is already baked into this repo's `Dockerfile`,
-`dockerignore`, `app-config.production.yaml`, and `backstage-template.yaml`
+`.dockerignore`, `app-config.production.yaml`, and `backstage-template.yaml`
 — this section is here for anyone hitting the same errors against a
 different scaffold version where the specifics may have shifted.
 

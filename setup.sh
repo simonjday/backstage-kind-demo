@@ -29,7 +29,26 @@ kubectl wait --namespace ingress-nginx \
 echo "==> Syncing config/build files into scaffolded app"
 cp app-config.production.yaml "${APP_DIR}/app-config.production.yaml"
 cp Dockerfile "${APP_DIR}/packages/backend/Dockerfile"
-cp dockerignore "${APP_DIR}/.dockerignore"
+cp .dockerignore "${APP_DIR}/.dockerignore"
+
+echo "==> Syncing custom kubernetes scaffolder action"
+mkdir -p "${APP_DIR}/packages/backend/src/modules"
+cp kubernetesActions.ts "${APP_DIR}/packages/backend/src/modules/kubernetesActions.ts"
+
+echo "==> Installing kubernetes-actions dependencies"
+( cd "${APP_DIR}" && corepack enable \
+  && yarn --cwd packages/backend add @kubernetes/client-node js-yaml \
+  && yarn --cwd packages/backend add -D @types/js-yaml )
+
+if ! grep -q "kubernetesActionsModule" "${APP_DIR}/packages/backend/src/index.ts" 2>/dev/null; then
+  echo ""
+  echo "!! MANUAL STEP REQUIRED before building: packages/backend/src/index.ts"
+  echo "!! doesn't reference kubernetesActionsModule yet. Add these two lines"
+  echo "!! (an import near the top, and backend.add(...) before backend.start()):"
+  echo "!!   import { kubernetesActionsModule } from './modules/kubernetesActions';"
+  echo "!!   backend.add(kubernetesActionsModule);"
+  echo ""
+fi
 
 echo "==> Building Backstage image"
 cd "${APP_DIR}"
@@ -41,6 +60,7 @@ cd - >/dev/null
 kubectl apply -f manifests/00-namespace.yaml
 kubectl apply -f manifests/01-postgres-secret.yaml
 kubectl apply -f manifests/02-postgres.yaml
+kubectl apply -f manifests/05-rbac.yaml
 
 echo "==> Waiting for postgres pod to be scheduled"
 until kubectl get pods -n backstage -l app=postgres 2>/dev/null | grep -q postgres; do
