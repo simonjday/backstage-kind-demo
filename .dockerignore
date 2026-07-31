@@ -1,0 +1,11 @@
+.git
+.github
+.vscode
+node_modules
+**/node_modules
+**/dist
+**/dist-types
+.yarn/cache
+.yarn/install-state.gz
+*.log
+.DS_Store
