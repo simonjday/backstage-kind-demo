@@ -52,7 +52,7 @@ spec:
       # inline here — much easier to get right and to read.
       action: kubernetes:namespace-provision
       input:
-        namespace: ${{ parameters.namespace_name }}
+        namespace: "${{ parameters.namespace_name }}"
         resource_profile: ${{ parameters.resource_profile }}
         network_zone: ${{ parameters.network_zone }}
 
@@ -64,11 +64,11 @@ spec:
           apiVersion: v1
           kind: Namespace
           metadata:
-            name: ${{ parameters.namespace_name }}
+            name: "${{ parameters.namespace_name }}"
             labels:
               status: approved
             annotations:
-              approved-by: ${{ parameters.approver_name }}
+              approved-by: "${{ parameters.approver_name }}"
 
     - id: log
       name: Log approval
