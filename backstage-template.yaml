@@ -73,21 +73,21 @@ spec:
           apiVersion: v1
           kind: Namespace
           metadata:
-            name: ${{ parameters.project_name }}
+            name: "${{ parameters.project_name }}"
             labels:
               status: pending-approval
-              environment: ${{ parameters.environment }}
-              cost-center: ${{ parameters.cost_center }}
+              environment: "${{ parameters.environment }}"
+              cost-center: "${{ parameters.cost_center }}"
               managed-by: backstage-scaffolder
             annotations:
-              requested-by: ${{ user.entity.metadata.name }}
-              oncall-group: ${{ parameters.oncall_group }}
-              resource-profile: ${{ parameters.resource_profile }}
-              network-zone: ${{ parameters.network_zone }}
-              scc-requirement: ${{ parameters.scc_requirement }}
-              data-classification: ${{ parameters.data_classification }}
-              target-cluster: ${{ parameters.target_cluster }}
-              expiry-date: ${{ parameters.expiry_date }}
+              requested-by: "${{ user.entity.metadata.name }}"
+              oncall-group: "${{ parameters.oncall_group }}"
+              resource-profile: "${{ parameters.resource_profile }}"
+              network-zone: "${{ parameters.network_zone }}"
+              scc-requirement: "${{ parameters.scc_requirement }}"
+              data-classification: "${{ parameters.data_classification }}"
+              target-cluster: "${{ parameters.target_cluster }}"
+              expiry-date: "${{ parameters.expiry_date }}"
 
     - id: log
       name: Log request
