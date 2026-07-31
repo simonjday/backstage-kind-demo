@@ -124,6 +124,37 @@ ClusterRole + ClusterRoleBinding, referenced by
 `05-rbac.yaml` before the Deployment if you're doing this by hand rather
 than via `setup.sh`.
 
+**Enforcement — nothing actually stops workloads in a pending namespace by
+default.** A namespace with no quota yet is *more* permissive than an
+approved one, not less — labels and annotations alone don't block
+anything. `manifests/06-kyverno-policy.yaml` closes this gap with a Kyverno
+`ClusterPolicy` that denies `Pod`/`Deployment`/`ReplicaSet`/`StatefulSet`/
+`DaemonSet`/`Job` creation in any namespace labelled
+`status: pending-approval`, regardless of RBAC or quota state — the layer
+that actually holds even if someone has broader cluster access. `setup.sh`
+installs Kyverno via Helm and applies this policy automatically; by hand:
+
+```bash
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm upgrade --install kyverno kyverno/kyverno --namespace kyverno --create-namespace --wait
+kubectl apply -f manifests/06-kyverno-policy.yaml
+```
+
+Verify it's actually blocking:
+
+```bash
+# after running "Request a Namespace" — pick whatever name you used
+kubectl run test-pod --image=nginx -n <your-namespace>
+# expect: admission webhook denied the request — Namespace "..." is pending approval
+
+# after running "Approve Namespace Request" for the same namespace, retry:
+kubectl run test-pod --image=nginx -n <your-namespace>
+# expect: pod created successfully (though it'll likely stay Pending on a
+# single-node kind cluster depending on the quota's pod count — that's fine,
+# admission accepted it, which is what we're checking)
+```
+
+
 ## What's in this repo
 
 | Path | Purpose |
@@ -139,6 +170,7 @@ than via `setup.sh`.
 | `manifests/03-backstage-deployment.yaml` | Backstage Deployment + Service, runs as the `backstage` ServiceAccount |
 | `manifests/04-ingress.yaml` | nginx Ingress routing `localhost` → Backstage |
 | `manifests/05-rbac.yaml` | ServiceAccount + ClusterRole + ClusterRoleBinding so the pod can manage namespaces/quota/limits/netpol |
+| `manifests/06-kyverno-policy.yaml` | Kyverno `ClusterPolicy` blocking workload creation in any `status: pending-approval` namespace |
 | `backstage-template.yaml` | "Request a Namespace" — creates a pending-approval namespace in this cluster |
 | `backstage-template-approve.yaml` | "Approve Namespace Request" — provisions it and flips it to approved |
 | `setup.sh` | One-shot cluster create + build + deploy, including the kubernetes-actions module |
@@ -148,7 +180,7 @@ than via `setup.sh`.
 ## Requirements
 
 - Docker Desktop for Mac (Apple Silicon), 6+ CPUs / 8GB+ RAM allocated
-- `kind`, `kubectl` (`brew install kind kubectl`)
+- `kind`, `kubectl`, `helm` (`brew install kind kubectl helm`)
 - Node.js 22 (`brew install node@22`) — earlier Backstage scaffolds tolerated
   Node 20, but the current `create-app` pulls in native deps (`isolated-vm`,
   node-gyp's bundled `undici`) that require Node 22's V8/runtime

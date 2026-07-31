@@ -26,6 +26,20 @@ kubectl wait --namespace ingress-nginx \
   --selector=app.kubernetes.io/component=controller \
   --timeout=120s
 
+echo "==> Installing Kyverno (enforces the pending-approval namespace policy)"
+if ! command -v helm >/dev/null 2>&1; then
+  echo "ERROR: helm not found. Install it first: brew install helm"
+  exit 1
+fi
+helm repo add kyverno https://kyverno.github.io/kyverno/ >/dev/null 2>&1 || true
+helm repo update kyverno >/dev/null
+helm upgrade --install kyverno kyverno/kyverno \
+  --namespace kyverno --create-namespace \
+  --wait --timeout 180s
+
+echo "==> Applying pending-approval enforcement policy"
+kubectl apply -f manifests/06-kyverno-policy.yaml
+
 echo "==> Syncing config/build files into scaffolded app"
 cp app-config.production.yaml "${APP_DIR}/app-config.production.yaml"
 cp Dockerfile "${APP_DIR}/packages/backend/Dockerfile"

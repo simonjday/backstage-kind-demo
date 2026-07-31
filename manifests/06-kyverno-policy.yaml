@@ -1,0 +1,45 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: block-pending-approval-namespaces
+spec:
+  validationFailureAction: Enforce
+  background: false   # rule depends on the live admission request's namespace, not a background scan
+  rules:
+    - name: deny-workloads-in-pending-ns
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - ReplicaSet
+                - StatefulSet
+                - DaemonSet
+                - Job
+      # `request.namespaceLabels` is a Kyverno-populated context variable
+      # available on admission requests — no extra context block needed on
+      # most Kyverno versions. If it doesn't resolve on yours, replace the
+      # precondition key with an explicit apiCall lookup instead:
+      #
+      # context:
+      #   - name: nsLabels
+      #     apiCall:
+      #       urlPath: "/api/v1/namespaces/{{request.namespace}}"
+      #       jmesPath: "metadata.labels"
+      # preconditions:
+      #   all:
+      #     - key: "{{ nsLabels.\"status\" || '' }}"
+      #       operator: Equals
+      #       value: pending-approval
+      preconditions:
+        all:
+          - key: "{{ request.namespaceLabels.\"status\" || '' }}"
+            operator: Equals
+            value: pending-approval
+      validate:
+        message: >-
+          Namespace "{{ request.namespace }}" is pending approval
+          (status=pending-approval) — workloads cannot be deployed until
+          the "Approve Namespace Request" template has run.
+        deny: {}
